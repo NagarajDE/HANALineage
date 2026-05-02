@@ -1,4 +1,26 @@
+"""
+main.py — HANA Calculation View Column Lineage
+
+Required Windows User Environment Variables
+(set once via: setup_credentials  OR  setx <VAR_NAME> "<value>")
+
+  HANA_DEV_HOST      HANA DEV server hostname
+  HANA_DEV_PORT      HANA DEV port            (default: 30041)
+  HANA_DEV_USER      HANA DEV username
+  HANA_DEV_PASSWORD  HANA DEV password
+
+  HANA_QAS_HOST      HANA QAS server hostname
+  HANA_QAS_PORT      HANA QAS port            (default: 30041)
+  HANA_QAS_USER      HANA QAS username
+  HANA_QAS_PASSWORD  HANA QAS password
+
+  HANA_PRD_HOST      HANA PRD server hostname
+  HANA_PRD_PORT      HANA PRD port            (default: 30041)
+  HANA_PRD_USER      HANA PRD username
+  HANA_PRD_PASSWORD  HANA PRD password
+"""
 import sys
+import os
 import re
 from bs4 import BeautifulSoup
 import pandas as pd
@@ -7,6 +29,7 @@ from hana_ml import dataframe
 from itertools import tee
 import datetime
 import warnings
+from constants import HANA_ENV_CONFIG, HANA_DEFAULT_PORT
 
 # from IPython.display import display, HTML
 
@@ -494,36 +517,55 @@ def display_menu():
 
 if __name__ == '__main__':
     warnings.filterwarnings("ignore", category=FutureWarning)
-    # HANA_SQL_SCRIPT = ''' upsert "NGUMATIMA1"."LINEAGE" ("PACKAGENAME",
-    # "VIEWNAME",
-    # "TARGETCOLUMN",
-    # "MAPPING",
-    # "META_CRT_DT") values(?,?,?,?,?)  WITH PRIMARY KEY
-    # '''
-    HANA_SQL_SCRIPT = ''' upsert "CSTM_ILMN_P2D"."LINEAGE" ("MAPPING","META_CRT_DT","PACKAGENAME","TARGETCOLUMN","VIEWNAME") values(?,?,?,?,?)   WITH PRIMARY KEY  '''
 
-    view_query = '''
-    select distinct
-    package_id,
-    object_name 
+    # --- Environment selection ---
+    print('Select HANA Environment:')
+    print('  1 - DEV (default)')
+    print('  2 - QAS')
+    print('  3 - PRD')
+    _env_choice = input('Environment [1]: ').strip()
+    _env_map = {'1': 'DEV', '2': 'QAS', '3': 'PRD', '': 'DEV'}
+    HANA_ENV = _env_map.get(_env_choice, 'DEV')
+    if HANA_ENV not in HANA_ENV_CONFIG:
+        print(f'Invalid choice "{_env_choice}", defaulting to DEV.')
+        HANA_ENV = 'DEV'
 
-    from "_SYS_REPO"."ACTIVE_OBJECT" 
-    where (package_id like 'ILMN.%P2D%' or package_id like 'ILMN.%P2P%')
-    and object_name like '%_QV'
-    '''
-    HANA_wa_list = ['PACKAGENAME','VIEWNAME','TARGETCOLUMN','MAPPING','META_CRT_DT']
+    _cfg      = HANA_ENV_CONFIG[HANA_ENV]
+    HANA_HOST     = _cfg['host']
+    HANA_PORT     = _cfg['port']
+    HANA_USER     = _cfg['user']
+    HANA_PASSWORD = _cfg['password']
+    print(f'Connecting to HANA [{HANA_ENV}] via {HANA_HOST} = {os.environ.get(HANA_HOST)}')
+
+    # --- SQL file paths ---
+    SQL_UPSERT_FILE    = r'upsert_lineage.sql'
+    SQL_VIEW_LIST_FILE = r'view_list_query.sql'
+    SQL_H_SQL_FILE     = r'dependency_query.sql'
+    SQL_COLUMN_FILE    = r'Column_query.sql'
+
+    # --- Load SQL statements from files ---
+    with open(SQL_UPSERT_FILE, 'r') as _f:
+        HANA_SQL_SCRIPT = _f.read().strip()
+    with open(SQL_VIEW_LIST_FILE, 'r') as _f:
+        view_query = _f.read()
+
+    HANA_wa_list = ['MAPPING', 'META_CRT_DT', 'PACKAGENAME', 'TARGETCOLUMN', 'VIEWNAME']
     HANA_wa_dict = {key: None for key in HANA_wa_list}
-    # df_hana = pd.DataFrame()
-    cc = dataframe.ConnectionContext('analyticsdev.illumina.com', 30041, 'NGUMATIMA1','DevABD#9999')
-    # cc = dataframe.ConnectionContext('analyticsdev.illumina.com', 30041,"","")
+    cc = dataframe.ConnectionContext(
+        os.environ.get(HANA_HOST),
+        int(os.environ.get(HANA_PORT, 30041)),
+        os.environ.get(HANA_USER),
+        os.environ.get(HANA_PASSWORD)
+    )
+    print(f'Connected to HANA [{HANA_ENV}].')
 
     def start_lineage(p_path):
         global df_all_view_xml
         df_hana = pd.DataFrame()
-        with open(r'H_SQL', 'r') as file:
+        with open(SQL_H_SQL_FILE, 'r') as file:
             view_query = file.read()
             view_query = view_query.replace('!viewPath!', viewPath)
-        with open(r'Column_query', 'r') as file:
+        with open(SQL_COLUMN_FILE, 'r') as file:
             column_query = file.read()
             column_query = column_query.replace('!viewPath!', viewPath)
 

@@ -6,7 +6,7 @@
       <excludeFolder url="file://$MODULE_DIR$/venv38" />
       <excludeFolder url="file://$MODULE_DIR$/venv37" />
     </content>
-    <orderEntry type="jdk" jdkName="HANA-XML" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="C:\Users\ngumatima1\AppData\Local\miniconda3\envs\python_util_conda310_py310" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>
