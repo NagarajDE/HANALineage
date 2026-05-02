@@ -36,18 +36,7 @@ from constants import HANA_ENV_CONFIG, HANA_DEFAULT_PORT
 
 
 
-# Final_columns_keys = ['targetColumn', 'Mapping', 'schemaName', 'table',
-#                      'tableField', 'coltype', 'isCalcColumn', 'formula', 'aggregationType', 'measureType',
-#                      'comments']
-# Final_columns_dict = {key: None for key in Final_columns_keys}
-# Final_columns_df = pd.DataFrame()
-# def pretty_print(df):
-#     return display( HTML( df.to_html().replace("\\n","<br>") ) )
 
-# def get_calc_formula_columns(p_calc_formula: str,sep: str):
-#     regex = '\\'+sep+'(.*?)\\'+sep
-#     calc_field_list = re.findall(regex, p_calc_formula)
-#     return calc_field_list
 def decode_direct_column(p_ViewXML, p_NodeXML, p_ViewNode, p_direct_targetColumn):
     # if p_NodeXML.find_all('mapping', {'target': p_direct_targetColumn}):
     mapping_list = p_NodeXML.find_all('input')
@@ -463,9 +452,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
     # print(tabulate(view_semantic_df, headers='keys', tablefmt='psql'))
     if view_semantic_df is not None:
         view_semantic_df.reset_index()
-        for row in view_semantic_df.itertuples(index=True, name='Pandas'):
-
-           
+        for row in view_semantic_df.itertuples(index=True, name='Pandas'):        
 
 
             if getattr(row, 'isCalcColumn')== 'Yes':
