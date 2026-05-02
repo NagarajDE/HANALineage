@@ -530,7 +530,7 @@ if __name__ == '__main__':
     SQL_UPSERT_FILE    = r'upsert_lineage.sql'
     SQL_VIEW_LIST_FILE = r'view_list_query.sql'
     SQL_H_SQL_FILE     = r'dependency_query.sql'
-    SQL_COLUMN_FILE    = r'Column_query.sql'
+    SQL_COLUMN_FILE    = r'column_list_query.sql'
 
     # --- Load SQL statements from files ---
     with open(SQL_UPSERT_FILE, 'r') as _f:
