@@ -353,6 +353,9 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
         return view_semantic_df
     payload = cdata_list[0]
     bs4_parent_xml = BeautifulSoup(payload, features="xml")
+    if bs4_parent_xml.logicalModel is None:
+        print(f'  [SKIP] {p_parentPackage}/{p_parentView} — no logicalModel in XML (not a Calculation View?), skipping.')
+        return view_semantic_df
     parent_semantic_node_input = bs4_parent_xml.logicalModel.get('id')
 
     if bs4_parent_xml.logicalModel.find('attribute'):
