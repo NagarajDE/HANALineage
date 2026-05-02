@@ -331,7 +331,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['semanticNodeInput'] = parent_semantic_node_input
             view_semantic['targetColumn'] = attribute.get('id')
             view_semantic['sourceColumn'] = attribute.keyMapping.get('columnName')
-            view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('baseMeasures'):
         view_semantic = dict((k, None) for k in view_semantic)
@@ -340,7 +340,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['semanticNodeInput'] = parent_semantic_node_input
             view_semantic['targetColumn'] = measure.get('id')
             view_semantic['sourceColumn'] = measure.measureMapping.get('columnName')
-            view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('calculatedAttributes'):
         ## Check if the column is a calculated attribute
@@ -514,7 +514,7 @@ if __name__ == '__main__':
     HANA_wa_list = ['PACKAGENAME','VIEWNAME','TARGETCOLUMN','MAPPING','META_CRT_DT']
     HANA_wa_dict = {key: None for key in HANA_wa_list}
     # df_hana = pd.DataFrame()
-    cc = dataframe.ConnectionContext('analyticsdev.illumina.com', 30041, 'ngumatima1','DevABC#9797')
+    cc = dataframe.ConnectionContext('analyticsdev.illumina.com', 30041, 'NGUMATIMA1','DevABD#9999')
     # cc = dataframe.ConnectionContext('analyticsdev.illumina.com', 30041,"","")
 
     def start_lineage(p_path):
@@ -561,7 +561,7 @@ if __name__ == '__main__':
             else:
                 HANA_wa_dict['MAPPING'] = getattr(row, 'formula')
             HANA_wa_dict['META_CRT_DT'] = datetime.datetime.now()
-            df_hana = df_hana.append(HANA_wa_dict, ignore_index=True)
+            df_hana = df_hana._append(HANA_wa_dict, ignore_index=True)
             # df_hana = pd.concat([df_hana,HANA_wa_dict], ignore_index=True)
 
         print(tabulate(df_hana, headers='keys', tablefmt='psql'))
