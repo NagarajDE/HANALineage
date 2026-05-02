@@ -262,7 +262,11 @@ def column_lineage(p_viewNodeId: str, p_columnName: str, p_viewXML):
 def view_lineage(p_packageName, p_viewName, p_viewColumn):
     df_cdata = df_all_view_xml.loc[
         (df_all_view_xml['PACKAGE_ID'] == p_packageName) & (df_all_view_xml['OBJECT_NAME'] == p_viewName), ['CDATA']]
-    payload = list(x for x in df_cdata["CDATA"])[0]
+    cdata_list = list(x for x in df_cdata["CDATA"])
+    if not cdata_list:
+        print(f'  [SKIP] XML not found for dependent view: {p_packageName}/{p_viewName} — skipping column {p_viewColumn}')
+        return None
+    payload = cdata_list[0]
     bs4_xml = BeautifulSoup(payload, features="xml")
     semantic_node_input = bs4_xml.logicalModel.get('id')
     semantic_node_xml = (bs4_xml.logicalModel.find(lambda tag: tag.get('id') == p_viewColumn))
@@ -343,7 +347,11 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
     df_parent_cdata = df_all_views_xml.loc[
         (df_all_views_xml['PACKAGE_ID'] == p_parentPackage) & (df_all_views_xml['OBJECT_NAME'] == p_parentView), [
             'CDATA']]
-    payload = list(x for x in df_parent_cdata["CDATA"])[0]
+    cdata_list = list(x for x in df_parent_cdata["CDATA"])
+    if not cdata_list:
+        print(f'  [SKIP] XML not found for view: {p_parentPackage}/{p_parentView} — no lineage produced')
+        return view_semantic_df
+    payload = cdata_list[0]
     bs4_parent_xml = BeautifulSoup(payload, features="xml")
     parent_semantic_node_input = bs4_parent_xml.logicalModel.get('id')
 
@@ -583,6 +591,9 @@ if __name__ == '__main__':
 
         df_final = parse_view_semantic(df_all_views_xml=df_all_view_xml, p_parentPackage=packageName,
                                        p_parentView=viewName)
+        if df_final is None or df_final.empty:
+            print(f'  [SKIP] No lineage data for {viewPath} — skipping upsert.')
+            return
         # print(tabulate(df_final, headers='keys', tablefmt='psql'))
         print('*********')
         for row in df_final.itertuples(index=True, name='Pandas'):
@@ -590,9 +601,11 @@ if __name__ == '__main__':
             HANA_wa_dict['VIEWNAME'] = viewName
             HANA_wa_dict['TARGETCOLUMN'] = getattr(row, 'targetColumn')
             if getattr(row, 'isCalcColumn') is None or getattr(row, 'isCalcColumn') == '':
-                HANA_wa_dict['MAPPING'] = getattr(row, 'Mapping')
+                mapping_val = getattr(row, 'Mapping')
+                HANA_wa_dict['MAPPING'] = str(mapping_val) if mapping_val is not None else None
             else:
-                HANA_wa_dict['MAPPING'] = getattr(row, 'formula')
+                formula_val = getattr(row, 'formula')
+                HANA_wa_dict['MAPPING'] = str(formula_val) if formula_val is not None else None
             HANA_wa_dict['META_CRT_DT'] = datetime.datetime.now()
             df_hana = df_hana._append(HANA_wa_dict, ignore_index=True)
             # df_hana = pd.concat([df_hana,HANA_wa_dict], ignore_index=True)
