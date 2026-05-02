@@ -376,7 +376,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['isCalcColumn'] = 'Yes'
             view_semantic['formula'] = parent_calc_attr_formula
             view_semantic['coltype'] = 'Calculated Attribute Column'
-            view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
             # regex = '\\"(.*?)\\"'
             # for parent_calc_attr_column in re.findall(regex, parent_calc_attr_formula):
@@ -404,7 +404,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
                 view_semantic['formula'] = parent_calc_measure_formula
                 view_semantic['coltype'] = 'Counter (Calculated measure)'
                 # print('its a counter')
-                view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+                view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
             if calculatedMeasure.get('semanticType') == 'amount':
                 parent_calc_measure_formula = calculatedMeasure.formula.get_text().replace('\n', '')
@@ -431,7 +431,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
                 view_semantic['isCalcColumn'] = 'Yes'
                 view_semantic['formula'] = parent_calc_measure_formula
                 view_semantic['coltype'] = 'Calculated Measure '
-                view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+                view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('restrictedMeasures'):
         rs_measures_list = bs4_parent_xml.logicalModel.restrictedMeasures.find_all('measure')
@@ -447,7 +447,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['isCalcColumn'] = 'Yes'
             view_semantic['formula'] = parent_rs_measure_formula
             view_semantic['coltype'] = 'Restricted Measure Column'
-            view_semantic_df = view_semantic_df.append(view_semantic, ignore_index=True)
+            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
 
     # print(tabulate(view_semantic_df, headers='keys', tablefmt='psql'))
     if view_semantic_df is not None:
