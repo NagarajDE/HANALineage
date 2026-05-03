@@ -551,6 +551,7 @@ if __name__ == '__main__':
     def start_lineage(p_path):
         global df_all_view_xml
         df_hana = pd.DataFrame()
+        print(f'\n>>> Processing: {viewPath}')
         with open(SQL_H_SQL_FILE, 'r') as file:
             view_query = file.read()
             view_query = view_query.replace('!viewPath!', viewPath)
@@ -558,25 +559,19 @@ if __name__ == '__main__':
             column_query = file.read()
             column_query = column_query.replace('!viewPath!', viewPath)
 
-       
-        if view_query is not None:
+        try:
             hdf_view = cc.sql(view_query)
             df_all_view_xml = hdf_view.collect()
-            # pd.options.display.width = None
-            # print(df_all_view_xml)
-            # with pd.option_context('expand_frame_repr', False, 'display.max_rows', None):
-            #     print(df_all_view_xml)
+        except Exception as e:
+            print(f'  [ERROR] Dependency query failed for {viewPath}: {e}')
+            return
 
-        else:
-            print('sql query has issue')
-            sys.exit(0)
-
-        if column_query is not None:
+        try:
             hdf_col = cc.sql(column_query)
             df_col = hdf_col.collect()
-        else:
-            print('sql query has issue')
-            sys.exit(0)
+        except Exception as e:
+            print(f'  [ERROR] Column query failed for {viewPath}: {e}')
+            return
         # cc.connection.close()
 
         df_final = parse_view_semantic(df_all_views_xml=df_all_view_xml, p_parentPackage=packageName,
