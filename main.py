@@ -544,7 +544,8 @@ if __name__ == '__main__':
         os.environ.get(HANA_HOST),
         int(os.environ.get(HANA_PORT, 30041)),
         os.environ.get(HANA_USER),
-        os.environ.get(HANA_PASSWORD)
+        os.environ.get(HANA_PASSWORD),
+        autocommit=False
     )
     print(f'Connected to HANA [{HANA_ENV}].')
 
@@ -603,6 +604,7 @@ if __name__ == '__main__':
         tuple_of_tuples = list(tuple(x) for x in chunk)
         try:
           hana_cur.executemany(HANA_SQL_SCRIPT, tuple_of_tuples)
+          cc.connection.commit()
           print('HANA Table updated with Lineage')
         except Exception as e:
             print(viewPath,'\n')
