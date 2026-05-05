@@ -28,9 +28,13 @@ from tabulate import tabulate
 from hana_ml import dataframe
 from itertools import tee
 import datetime
+import time
 import warnings
 from constants import HANA_ENV_CONFIG, HANA_DEFAULT_PORT
 
+_col_lineage_depth = 0
+_MAX_COL_LINEAGE_DEPTH = 5000
+_bs4_cache: dict = {}  # cache parsed XML trees keyed by (package, view)_verbose = True  # True = single-view (detailed), False = bulk (quiet)
 # from IPython.display import display, HTML
 
 
@@ -123,6 +127,13 @@ def decode_calc_column(p_ViewXML, p_NodeXML, p_ViewNode, p_calc_targtColumn):
 
 
 def column_lineage(p_viewNodeId: str, p_columnName: str, p_viewXML):
+    global _col_lineage_depth
+    _col_lineage_depth += 1
+    if _col_lineage_depth > _MAX_COL_LINEAGE_DEPTH:
+        _col_lineage_depth -= 1
+        if _verbose:
+            print(f'  [WARN] Max depth reached at node={p_viewNodeId} col={p_columnName} — stopping branch.', flush=True)
+        return None
     all_mapping_list = None
     if p_viewXML.dataSources.find('DataSource', {'id': p_viewNodeId, 'type': 'DATA_BASE_TABLE'}):
         base_mapping = {'schema_name': None, 'table_name': None, 'field_name': None}
@@ -133,6 +144,7 @@ def column_lineage(p_viewNodeId: str, p_columnName: str, p_viewXML):
         base_mapping['table_name'] = field_name
         base_mapping['field_name'] = p_columnName
         # tab_col = schema_name + '.' + table_name + '->' + p_columnName
+        _col_lineage_depth -= 1
         return base_mapping
         # return schema_name,table_name,p_columnName
     elif p_viewXML.dataSources.find('DataSource', {'id': p_viewNodeId, 'type': 'CALCULATION_VIEW'}):
@@ -141,11 +153,13 @@ def column_lineage(p_viewNodeId: str, p_columnName: str, p_viewXML):
         view_name = ds_view_xml.resourceUri.get_text().split('/')[3]
         data_source = view_lineage(p_packageName=package_name, p_viewName=view_name, p_viewColumn=p_columnName)
         # ds_return = package_name + '.' + view_name + '--' + p_columnName
+        _col_lineage_depth -= 1
         return data_source
     elif p_viewXML.dataSources.find('DataSource', {'id': p_viewNodeId, 'type': 'TABLE_FUNCTION'}):
         tf_text = 'its a table function: ' + p_viewNodeId
         # print(tf_text)
         field_name = 'TF'
+        _col_lineage_depth -= 1
         return p_viewNodeId
     elif p_viewXML.calculationViews.find('calculationView', {'id': p_viewNodeId}):
         node_xml = p_viewXML.calculationViews.find('calculationView', {'id': p_viewNodeId})
@@ -245,18 +259,25 @@ def column_lineage(p_viewNodeId: str, p_columnName: str, p_viewXML):
         elif node_xml.calculatedViewAttributes.find('calculatedViewAttribute', {'id': p_columnName}):
             calc_attribute_source = decode_calc_column(p_ViewXML=p_viewXML, p_NodeXML=node_xml, p_ViewNode=p_viewNodeId,
                                                        p_calc_targtColumn=p_columnName)
+            _col_lineage_depth -= 1
             return calc_attribute_source
+    _col_lineage_depth -= 1
 
 
 def view_lineage(p_packageName, p_viewName, p_viewColumn):
-    df_cdata = df_all_view_xml.loc[
-        (df_all_view_xml['PACKAGE_ID'] == p_packageName) & (df_all_view_xml['OBJECT_NAME'] == p_viewName), ['CDATA']]
-    cdata_list = list(x for x in df_cdata["CDATA"])
-    if not cdata_list:
-        print(f'  [SKIP] XML not found for dependent view: {p_packageName}/{p_viewName} — skipping column {p_viewColumn}')
-        return None
-    payload = cdata_list[0]
-    bs4_xml = BeautifulSoup(payload, features="xml")
+    cache_key = (p_packageName, p_viewName)
+    if cache_key in _bs4_cache:
+        bs4_xml = _bs4_cache[cache_key]
+    else:
+        df_cdata = df_all_view_xml.loc[
+            (df_all_view_xml['PACKAGE_ID'] == p_packageName) & (df_all_view_xml['OBJECT_NAME'] == p_viewName), ['CDATA']]
+        cdata_list = list(x for x in df_cdata["CDATA"])
+        if not cdata_list:
+            print(f'  [SKIP] XML not found for dependent view: {p_packageName}/{p_viewName} — skipping column {p_viewColumn}')
+            return None
+        payload = cdata_list[0]
+        bs4_xml = BeautifulSoup(payload, features="xml")
+        _bs4_cache[cache_key] = bs4_xml
     semantic_node_input = bs4_xml.logicalModel.get('id')
     semantic_node_xml = (bs4_xml.logicalModel.find(lambda tag: tag.get('id') == p_viewColumn))
     if semantic_node_xml is not None:
@@ -354,7 +375,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['semanticNodeInput'] = parent_semantic_node_input
             view_semantic['targetColumn'] = attribute.get('id')
             view_semantic['sourceColumn'] = attribute.keyMapping.get('columnName')
-            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+            view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('baseMeasures'):
         view_semantic = dict((k, None) for k in view_semantic)
@@ -363,7 +384,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['semanticNodeInput'] = parent_semantic_node_input
             view_semantic['targetColumn'] = measure.get('id')
             view_semantic['sourceColumn'] = measure.measureMapping.get('columnName')
-            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+            view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('calculatedAttributes'):
         ## Check if the column is a calculated attribute
@@ -376,7 +397,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['isCalcColumn'] = 'Yes'
             view_semantic['formula'] = parent_calc_attr_formula
             view_semantic['coltype'] = 'Calculated Attribute Column'
-            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+            view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
             # regex = '\\"(.*?)\\"'
             # for parent_calc_attr_column in re.findall(regex, parent_calc_attr_formula):
@@ -404,10 +425,13 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
                 view_semantic['formula'] = parent_calc_measure_formula
                 view_semantic['coltype'] = 'Counter (Calculated measure)'
                 # print('its a counter')
-                view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+                view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
             if calculatedMeasure.get('semanticType') == 'amount':
                 parent_calc_measure_formula = calculatedMeasure.formula.get_text().replace('\n', '')
+                source_currency = 'N/A'
+                target_currency = 'N/A'
+                reference_date = 'N/A'
                 if calculatedMeasure.find('sourceCurrency'):
                     if calculatedMeasure.sourceCurrency.find('value'):
                         source_currency = calculatedMeasure.sourceCurrency.find('value').get_text()
@@ -423,15 +447,23 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
                         reference_date = calculatedMeasure.referenceDate.find('value').get_text()
                     elif calculatedMeasure.referenceDate.find('attribute'):
                         reference_date = calculatedMeasure.referenceDate.find('attribute').get('attributeName')
-                parent_calc_measure_formula = 'Its Calculated measure with currency conversion, Source currency = ', source_currency, \
-                                              ' Target Currency =  ', target_currency, ' Reference date = ', reference_date, 'Source Column = ', parent_calc_measure_formula
+                parent_calc_measure_formula = (
+                    'Its Calculated measure with currency conversion, Source currency = '
+                    + str(source_currency)
+                    + ' Target Currency = '
+                    + str(target_currency)
+                    + ' Reference date = '
+                    + str(reference_date)
+                    + ' Source Column = '
+                    + str(parent_calc_measure_formula)
+                )
 
                 view_semantic['semanticNodeInput'] = parent_semantic_node_input
                 view_semantic['targetColumn'] = calculatedMeasure.get('id')
                 view_semantic['isCalcColumn'] = 'Yes'
                 view_semantic['formula'] = parent_calc_measure_formula
                 view_semantic['coltype'] = 'Calculated Measure '
-                view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+                view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
     if bs4_parent_xml.logicalModel.find('restrictedMeasures'):
         rs_measures_list = bs4_parent_xml.logicalModel.restrictedMeasures.find_all('measure')
@@ -447,7 +479,7 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
             view_semantic['isCalcColumn'] = 'Yes'
             view_semantic['formula'] = parent_rs_measure_formula
             view_semantic['coltype'] = 'Restricted Measure Column'
-            view_semantic_df = view_semantic_df._append(view_semantic, ignore_index=True)
+            view_semantic_df = pd.concat([view_semantic_df, pd.DataFrame([view_semantic])], ignore_index=True)
 
     # print(tabulate(view_semantic_df, headers='keys', tablefmt='psql'))
     if view_semantic_df is not None:
@@ -464,8 +496,10 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
                 if source_column is not None:
                     pass
 
-
-
+                global _col_lineage_depth
+                _col_lineage_depth = 0  # reset per-column so leaks from prior return paths don't accumulate
+                if _verbose:
+                    print(f'    [COL] {getattr(row, "targetColumn")} ({row.Index+1}/{len(view_semantic_df)})...', flush=True)
                 semantic_col_mapping = column_lineage(p_viewNodeId=semantic_node_input, p_columnName=source_column,
                                                       p_viewXML=bs4_parent_xml)
 
@@ -492,7 +526,8 @@ def parse_view_semantic(df_all_views_xml, p_parentView, p_parentPackage):
         # print(view_semantic_df_copy.head(n=250).to_string(index=False))
 
         # print(tabulate(view_semantic_df_copy, headers='keys', tablefmt='psql'))
-        print('*****')
+        if _verbose:
+            print('*****')
         return view_semantic_df_copy
         # print(tabulate(Final_columns_df, headers='keys', tablefmt='psql'))
 
@@ -550,9 +585,12 @@ if __name__ == '__main__':
     print(f'Connected to HANA [{HANA_ENV}].')
 
     def start_lineage(p_path):
-        global df_all_view_xml
+        global df_all_view_xml, _col_lineage_depth
+        _col_lineage_depth = 0
+        _bs4_cache.clear()
         df_hana = pd.DataFrame()
-        print(f'\n>>> Processing: {viewPath}')
+        if _verbose:
+            print(f'\n>>> Processing: {viewPath}', flush=True)
         with open(SQL_H_SQL_FILE, 'r') as file:
             view_query = file.read()
             view_query = view_query.replace('!viewPath!', viewPath)
@@ -560,28 +598,46 @@ if __name__ == '__main__':
             column_query = file.read()
             column_query = column_query.replace('!viewPath!', viewPath)
 
+        def _execute_collect(sql_text, step_name):
+            started_at = time.perf_counter()
+            if _verbose:
+                print(f'  [RUN] {step_name} started...', flush=True)
+            hdf = cc.sql(sql_text)
+            if _verbose:
+                print(f'  [RUN] {step_name} collecting rows...', flush=True)
+            df = hdf.collect()
+            elapsed = time.perf_counter() - started_at
+            if _verbose:
+                print(f'  [OK ] {step_name} completed in {elapsed:.2f}s; rows={len(df)}', flush=True)
+            return df
+
         try:
-            hdf_view = cc.sql(view_query)
-            df_all_view_xml = hdf_view.collect()
+            df_all_view_xml = _execute_collect(view_query, 'Dependency query')
         except Exception as e:
-            print(f'  [ERROR] Dependency query failed for {viewPath}: {e}')
+            print(f'  [ERROR] Dependency query failed for {viewPath}: {e}', flush=True)
             return
 
         try:
-            hdf_col = cc.sql(column_query)
-            df_col = hdf_col.collect()
+            df_col = _execute_collect(column_query, 'Column query')
         except Exception as e:
-            print(f'  [ERROR] Column query failed for {viewPath}: {e}')
+            print(f'  [ERROR] Column query failed for {viewPath}: {e}', flush=True)
             return
         # cc.connection.close()
 
+        parse_started_at = time.perf_counter()
+        if _verbose:
+            print('  [RUN] Parsing view semantic lineage...', flush=True)
         df_final = parse_view_semantic(df_all_views_xml=df_all_view_xml, p_parentPackage=packageName,
                                        p_parentView=viewName)
+        parse_elapsed = time.perf_counter() - parse_started_at
+        if _verbose:
+            print(f'  [OK ] Parsing completed in {parse_elapsed:.2f}s', flush=True)
         if df_final is None or df_final.empty:
-            print(f'  [SKIP] No lineage data for {viewPath} — skipping upsert.')
+            print(f'  [SKIP] No lineage data for {viewPath} — skipping upsert.', flush=True)
             return
         # print(tabulate(df_final, headers='keys', tablefmt='psql'))
-        print('*********')
+        if _verbose:
+            print('*********')
         for row in df_final.itertuples(index=True, name='Pandas'):
             HANA_wa_dict['PACKAGENAME'] = packageName
             HANA_wa_dict['VIEWNAME'] = viewName
@@ -593,28 +649,33 @@ if __name__ == '__main__':
                 formula_val = getattr(row, 'formula')
                 HANA_wa_dict['MAPPING'] = str(formula_val) if formula_val is not None else None
             HANA_wa_dict['META_CRT_DT'] = datetime.datetime.now()
-            df_hana = df_hana._append(HANA_wa_dict, ignore_index=True)
+            df_hana = pd.concat([df_hana, pd.DataFrame([HANA_wa_dict])], ignore_index=True)
             # df_hana = pd.concat([df_hana,HANA_wa_dict], ignore_index=True)
 
-        print(tabulate(df_hana, headers='keys', tablefmt='psql'))
+        if _verbose:
+            print(tabulate(df_hana, headers='keys', tablefmt='psql'))
 
         ###--- Insert data into HANA table
         hana_cur = cc.connection.cursor()
         chunk = df_hana.iloc[0: 1000].values.tolist()
         tuple_of_tuples = list(tuple(x) for x in chunk)
         try:
-          hana_cur.executemany(HANA_SQL_SCRIPT, tuple_of_tuples)
-          cc.connection.commit()
-          print('HANA Table updated with Lineage')
+            upsert_started_at = time.perf_counter()
+            if _verbose:
+                print(f'  [RUN] Upserting {len(tuple_of_tuples)} row(s) into lineage table...', flush=True)
+            hana_cur.executemany(HANA_SQL_SCRIPT, tuple_of_tuples)
+            cc.connection.commit()
+            upsert_elapsed = time.perf_counter() - upsert_started_at
+            print(f'  [OK ] {viewPath} — {len(tuple_of_tuples)} rows upserted in {upsert_elapsed:.2f}s', flush=True)
         except Exception as e:
-            print(viewPath,'\n')
-            print(e)
+            print(f'  [ERROR] {viewPath}: {e}', flush=True)
 
 
     display_menu()
     while True:
         command = input("\nCommand: ")
         if command == '1':
+            _verbose = True
             packageName = str(input('Enter HANA Package Name: '))
             packageName = packageName.replace(' ', '')
             viewName = str(input('Enter HANA View Name: '))
@@ -627,12 +688,15 @@ if __name__ == '__main__':
         elif command == '3':
             sys.exit(0)
         elif command == '2':
+            _verbose = False
             hdf = cc.sql(view_query)
             df_views = hdf.collect()
-            for row in df_views.itertuples(index=True, name='Pandas'):
+            total_views = len(df_views)
+            for i, row in enumerate(df_views.itertuples(index=True, name='Pandas'), start=1):
                 packageName = getattr(row, 'PACKAGE_ID')
                 viewName = getattr(row, 'OBJECT_NAME')
                 viewPath = packageName + '/' + viewName
+                print(f'[{i}/{total_views}] Processing: {viewPath}', flush=True)
                 start_lineage(p_path=viewPath)
             print('\n Lineage is completed')
             sys.exit(0)
