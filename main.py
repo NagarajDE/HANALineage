@@ -4,20 +4,25 @@ main.py — HANA Calculation View Column Lineage
 Required Windows User Environment Variables
 (set once via: setup_credentials  OR  setx <VAR_NAME> "<value>")
 
-  HANA_DEV_HOST      HANA DEV server hostname
-  HANA_DEV_PORT      HANA DEV port            (default: 30041)
-  HANA_DEV_USER      HANA DEV username
-  HANA_DEV_PASSWORD  HANA DEV password
+  HANA_DEV_HOST        HANA DEV server hostname
+  HANA_DEV_PORT        HANA DEV port            (default: 30041)
 
-  HANA_QAS_HOST      HANA QAS server hostname
-  HANA_QAS_PORT      HANA QAS port            (default: 30041)
-  HANA_QAS_USER      HANA QAS username
-  HANA_QAS_PASSWORD  HANA QAS password
+  HANA_QAS_HOST        HANA QAS server hostname
+  HANA_QAS_PORT        HANA QAS port            (default: 30041)
 
-  HANA_PRD_HOST      HANA PRD server hostname
-  HANA_PRD_PORT      HANA PRD port            (default: 30041)
-  HANA_PRD_USER      HANA PRD username
-  HANA_PRD_PASSWORD  HANA PRD password
+  HANA_PRD_HOST        HANA PRD server hostname
+  HANA_PRD_PORT        HANA PRD port            (default: 30041)
+
+  HANA_SSL_KEYSTORE    Path to client cert + private key (.pem)  — shared across envs
+  HANA_SSL_TRUSTSTORE  Path to server CA cert (.pem)             — shared across envs
+
+  # Kept for fallback if SSO is unavailable:
+  # HANA_DEV_USER      HANA DEV username
+  # HANA_DEV_PASSWORD  HANA DEV password
+  # HANA_QAS_USER      HANA QAS username
+  # HANA_QAS_PASSWORD  HANA QAS password
+  # HANA_PRD_USER      HANA PRD username
+  # HANA_PRD_PASSWORD  HANA PRD password
 """
 import sys
 import os
@@ -554,11 +559,11 @@ if __name__ == '__main__':
         print(f'Invalid choice "{_env_choice}", defaulting to DEV.')
         HANA_ENV = 'DEV'
 
-    _cfg      = HANA_ENV_CONFIG[HANA_ENV]
+    _cfg          = HANA_ENV_CONFIG[HANA_ENV]
     HANA_HOST     = _cfg['host']
     HANA_PORT     = _cfg['port']
-    HANA_USER     = _cfg['user']
-    HANA_PASSWORD = _cfg['password']
+    # HANA_USER     = _cfg['user']      # commented out — using SSO
+    # HANA_PASSWORD = _cfg['password']  # commented out — using SSO
     print(f'Connecting to HANA [{HANA_ENV}] via {HANA_HOST} = {os.environ.get(HANA_HOST)}')
 
     # --- SQL file paths ---
@@ -576,11 +581,14 @@ if __name__ == '__main__':
     HANA_wa_list = ['MAPPING', 'META_CRT_DT', 'PACKAGENAME', 'TARGETCOLUMN', 'VIEWNAME']
     HANA_wa_dict = {key: None for key in HANA_wa_list}
     cc = dataframe.ConnectionContext(
-        os.environ.get(HANA_HOST),
-        int(os.environ.get(HANA_PORT, 30041)),
-        os.environ.get(HANA_USER),
-        os.environ.get(HANA_PASSWORD),
-        autocommit=False
+        address=os.environ.get(HANA_HOST),
+        port=int(os.environ.get(HANA_PORT, 30041)),
+        user='',
+        password='',                         # empty string bypasses interactive prompt; SSO via OS Kerberos
+        # user=os.environ.get(HANA_USER),      # commented out — using SSO
+        # password=os.environ.get(HANA_PASSWORD),  # commented out — using SSO
+        sslValidateCertificate=False,
+        autocommit=False,
     )
     print(f'Connected to HANA [{HANA_ENV}].')
 
